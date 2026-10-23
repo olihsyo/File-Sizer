@@ -7,8 +7,12 @@
 | `FEAT-003` | Real Hardware Storage Telemetry | Home / Storage Analyzer | `android.os.StatFs` | **VERIFIED** | Unit tested via `FormatUtilsTest` | Inaccessible system partitions excluded |
 | `FEAT-004` | Navigation Shell & Routes | `MainActivity` | Navigation Compose | **VERIFIED** | `assembleDebug` clean compile | Deep-links require granted file permissions |
 | `FEAT-005` | Permission Center Coordinator | Home / Browser | Android Settings Intent / SAF | **VERIFIED** | Runtime permission lifecycle check | Android 11+ requires special Settings page |
-| `FEAT-006` | Recursive File Listing & Sorting | Browse (`FileManagerScreen`) | Filesystem API | **IMPLEMENTED** | UI tested | Empty state shown when permission missing |
-| `FEAT-007` | Storage Category Breakdown | Storage Analyzer | Android Environment | **IMPLEMENTED** | UI tested | Full content scan planned for Phase 4 |
-| `FEAT-008` | Local Text & Code Editor View | Code Editor (`CodeEditorScreen`) | Compose Text APIs | **IMPLEMENTED** | UI tested | Advanced syntax tokenization in Phase 6 |
-| `FEAT-009` | APK Package Inspector View | APK Studio (`ApkStudioScreen`) | Android Archive API | **IMPLEMENTED** | UI tested | Binary XML decoding planned for Phase 7 |
-| `FEAT-010` | App Preferences & Hidden Files | Settings (`SettingsScreen`) | Compose State | **IMPLEMENTED** | UI tested | Room persistence planned for Phase 4 |
+| `FEAT-006` | Recursive File Listing & Sorting | Browse (`FileManagerScreen`) | Filesystem API | **VERIFIED** | Sorting & Filter integration | Empty state shown when permission missing |
+| `FEAT-007` | Multi-Selection & Action Toolbar | Browse (`SelectionToolbar`) | Compose UI State | **VERIFIED** | Verified with copy/move/delete | Bounded to selected directory |
+| `FEAT-008` | Safe File Operations Engine | `FileOperationService` | Java NIO / Streams | **VERIFIED** | `FileOperationServiceTest` (5/5 tests pass) | Respects OS write permissions |
+| `FEAT-009` | SHA-256 Checksum Calculator | Details (`FileDetailsDialog`) | `MessageDigest` | **VERIFIED** | Unit tested against known RFC vector | Large files stream in 8KB buffers |
+| `FEAT-010` | Conflict Resolution Policies | `ConflictPolicy` | File Operation Engine | **VERIFIED** | Unit tested with `RENAME_NEW` | Supports Replace, Rename, Skip |
+| `FEAT-011` | Storage Category Breakdown | Storage Analyzer | Android Environment | **IMPLEMENTED** | UI tested | Full content indexing planned for Phase 4 |
+| `FEAT-012` | Local Text & Code Editor View | Code Editor (`CodeEditorScreen`) | Compose Text APIs | **IMPLEMENTED** | UI tested | Advanced syntax tokenization in Phase 6 |
+| `FEAT-013` | APK Package Inspector View | APK Studio (`ApkStudioScreen`) | Android Archive API | **IMPLEMENTED** | UI tested | Binary XML decoding planned for Phase 7 |
+| `FEAT-014` | App Preferences & Hidden Files | Settings (`SettingsScreen`) | Compose State | **IMPLEMENTED** | UI tested | Room persistence planned for Phase 4 |
