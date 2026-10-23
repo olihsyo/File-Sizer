@@ -1,0 +1,59 @@
+<resources>
+    <string name="app_name">File Sizer</string>
+    <string name="app_tagline">Advanced File Manager &amp; Studio</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_browse">Browse</string>
+    <string name="nav_analyzer">Storage</string>
+    <string name="nav_tools">Tools</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Home Dashboard -->
+    <string name="dashboard_storage_title">Device Storage</string>
+    <string name="dashboard_quick_actions">Quick Actions</string>
+    <string name="action_browse">Browse Files</string>
+    <string name="action_create_folder">New Folder</string>
+    <string name="action_compress">Compress</string>
+    <string name="action_extract">Extract</string>
+    <string name="action_apk_studio">APK Studio</string>
+    <string name="action_code_editor">Code Editor</string>
+    <string name="action_hex_viewer">Hex Viewer</string>
+    <string name="action_permissions">Permissions</string>
+
+    <!-- Common Actions -->
+    <string name="action_copy">Copy</string>
+    <string name="action_move">Move</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_share">Share</string>
+    <string name="action_details">Details</string>
+    <string name="action_checksum">Checksum</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_save">Save</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_open_settings">Open Settings</string>
+
+    <!-- Storage & Permissions -->
+    <string name="storage_internal">Internal Storage</string>
+    <string name="storage_used_format">%1$s used of %2$s</string>
+    <string name="permission_required_title">Storage Access Needed</string>
+    <string name="permission_required_desc">File Sizer requires permission to browse and manage your files safely.</string>
+    <string name="permission_grant_button">Grant Access</string>
+    <string name="permission_saf_picker_title">Select Storage Directory</string>
+
+    <!-- Empty States -->
+    <string name="empty_folder_title">Folder is Empty</string>
+    <string name="empty_folder_desc">No files or subdirectories found here.</string>
+    <string name="empty_recents_title">No Recent Files</string>
+    <string name="empty_recents_desc">Files you access will appear here for fast access.</string>
+
+    <!-- Settings -->
+    <string name="settings_appearance_title">Appearance</string>
+    <string name="settings_theme_label">Theme</string>
+    <string name="settings_language_label">Language</string>
+    <string name="settings_show_hidden_files">Show Hidden Files</string>
+    <string name="settings_about_title">About File Sizer</string>
+    <string name="settings_about_desc">Native offline-first file manager, archive studio, and developer utilities.</string>
+</resources>
