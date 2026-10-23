@@ -15,6 +15,10 @@
 | `FEAT-011` | Storage Deep Scan & Category Breakdown | Storage Analyzer (`StorageScanEngine`) | Coroutines / File IO | **VERIFIED** | `StorageScanEngineTest` (2/2 tests pass) | Traversable directories only |
 | `FEAT-012` | Largest Files & Duplicate Candidates | Storage Analyzer | `StorageScanEngine` | **VERIFIED** | Scan test verified largest order | Files > 1MB grouped by exact size |
 | `FEAT-013` | Recent Files & Favorites DB | SQLite Helper & `DatabaseRepository` | Android SQLite | **VERIFIED** | Verified with bounded retention (50) | In-memory cache + persistent SQLite |
-| `FEAT-014` | Local Text & Code Editor View | Code Editor (`CodeEditorScreen`) | Compose Text APIs | **IMPLEMENTED** | UI tested | Advanced syntax tokenization in Phase 6 |
-| `FEAT-015` | APK Package Inspector View | APK Studio (`ApkStudioScreen`) | Android Archive API | **IMPLEMENTED** | UI tested | Binary XML decoding planned for Phase 7 |
-| `FEAT-016` | App Preferences & Hidden Files | Settings (`SettingsScreen`) | Compose State | **IMPLEMENTED** | UI tested | Room persistence planned for Phase 4 |
+| `FEAT-014` | ZIP Archive Viewer & Exploration | `ArchiveViewerScreen` | `ArchiveService` | **VERIFIED** | `ArchiveServiceTest` | Unpacking without disk extraction |
+| `FEAT-015` | Safe Extraction & Zip Slip Defense | `ArchiveSecurity` | Java Canonical Paths | **VERIFIED** | Path traversal unit tests pass | Rejects escaping `../` paths |
+| `FEAT-016` | Archive Creation & Compression | `CreateArchiveDialog` | `ZipOutputStream` | **VERIFIED** | Tested with nested folder hierarchies | Supports Fast, Normal, Max levels |
+| `FEAT-017` | Archive CRC Integrity Testing | `ArchiveViewerScreen` | `java.util.zip.CRC32` | **VERIFIED** | Verified against corrupt data | In-memory CRC validation |
+| `FEAT-018` | Local Text & Code Editor View | Code Editor (`CodeEditorScreen`) | Compose Text APIs | **IMPLEMENTED** | UI tested | Advanced syntax tokenization in Phase 6 |
+| `FEAT-019` | APK Package Inspector View | APK Studio (`ApkStudioScreen`) | Android Archive API | **IMPLEMENTED** | UI tested | Binary XML decoding planned for Phase 7 |
+| `FEAT-020` | App Preferences & Hidden Files | Settings (`SettingsScreen`) | Compose State | **IMPLEMENTED** | UI tested | Room persistence planned for Phase 4 |
