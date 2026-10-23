@@ -224,6 +224,29 @@ fun FileSizerApp() {
                     )
                 }
 
+                composable(
+                    route = Screen.HexViewer.route,
+                    arguments = listOf(
+                        navArgument("path") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        }
+                    )
+                ) { backStackEntry ->
+                    val path = backStackEntry.arguments?.getString("path")
+                    com.filesizer.app.feature.hexeditor.HexViewerScreen(
+                        filePath = path,
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.DevTools.route) {
+                    com.filesizer.app.feature.devtools.DevToolsScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
                 composable(Screen.Settings.route) {
                     SettingsScreen()
                 }

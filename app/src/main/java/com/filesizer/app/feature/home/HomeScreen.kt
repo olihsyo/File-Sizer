@@ -180,9 +180,27 @@ fun HomeScreen(
                         icon = Icons.Rounded.DataArray,
                         iconTint = Color(0xFFEC4899),
                         iconBgColor = Color(0xFFFCE7F3),
-                        onClick = { onNavigate(Screen.CodeEditor.route) },
+                        onClick = { onNavigate(Screen.HexViewer.createRoute()) },
                         modifier = Modifier.weight(1f)
                     )
+                }
+            }
+
+            // Quick Action Grid Row 3
+            item {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    QuickActionCard(
+                        title = "Dev Tools",
+                        icon = Icons.Rounded.DataArray,
+                        iconTint = Color(0xFF0EA5E9),
+                        iconBgColor = Color(0xFFE0F2FE),
+                        onClick = { onNavigate(Screen.DevTools.route) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.weight(2f))
                 }
             }
 

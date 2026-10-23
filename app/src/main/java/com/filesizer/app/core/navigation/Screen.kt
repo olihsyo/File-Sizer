@@ -3,6 +3,7 @@ package com.filesizer.app.core.navigation
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.DataArray
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
@@ -65,6 +66,22 @@ sealed class Screen(
             return "archive?path=${android.net.Uri.encode(path)}"
         }
     }
+
+    data object HexViewer : Screen(
+        route = "hex?path={path}",
+        titleRes = com.filesizer.app.R.string.action_hex_viewer,
+        icon = Icons.Rounded.DataArray
+    ) {
+        fun createRoute(path: String? = null): String {
+            return if (path != null) "hex?path=${android.net.Uri.encode(path)}" else "hex"
+        }
+    }
+
+    data object DevTools : Screen(
+        route = "devtools",
+        titleRes = com.filesizer.app.R.string.nav_tools,
+        icon = Icons.Rounded.DataArray
+    )
 
     data object Settings : Screen(
         route = "settings",

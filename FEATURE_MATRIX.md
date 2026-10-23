@@ -3,7 +3,7 @@
 | Feature ID | Description | Screen / Entry Point | Dependencies | Status | Test Coverage | Known Limitations |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `FEAT-001` | Adaptive Brand Identity & Icons | System Launcher / TopBar | Android Vector Drawables | **VERIFIED** | Visual check & manifest validation | None |
-| `FEAT-002` | English & Bengali Localization | All Screens | Android Resources (`values`, `values-bn`) | **VERIFIED** | Resource compilation check | Additional dialects can be added later |
+| `FEAT-002` | English & Bengali Localization | All Screens | Android Resources (`values`, `values-bn`) | **VERIFIED** | Resource compilation check | Complete Bengali coverage |
 | `FEAT-003` | Real Hardware Storage Telemetry | Home / Storage Analyzer | `android.os.StatFs` | **VERIFIED** | Unit tested via `FormatUtilsTest` | Inaccessible system partitions excluded |
 | `FEAT-004` | Navigation Shell & Routes | `MainActivity` | Navigation Compose | **VERIFIED** | `assembleDebug` clean compile | Deep-links require granted file permissions |
 | `FEAT-005` | Permission Center Coordinator | Home / Browser | Android Settings Intent / SAF | **VERIFIED** | Runtime permission lifecycle check | Android 11+ requires special Settings page |
@@ -19,6 +19,10 @@
 | `FEAT-015` | Safe Extraction & Zip Slip Defense | `ArchiveSecurity` | Java Canonical Paths | **VERIFIED** | Path traversal unit tests pass | Rejects escaping `../` paths |
 | `FEAT-016` | Archive Creation & Compression | `CreateArchiveDialog` | `ZipOutputStream` | **VERIFIED** | Tested with nested folder hierarchies | Supports Fast, Normal, Max levels |
 | `FEAT-017` | Archive CRC Integrity Testing | `ArchiveViewerScreen` | `java.util.zip.CRC32` | **VERIFIED** | Verified against corrupt data | In-memory CRC validation |
-| `FEAT-018` | Local Text & Code Editor View | Code Editor (`CodeEditorScreen`) | Compose Text APIs | **IMPLEMENTED** | UI tested | Advanced syntax tokenization in Phase 6 |
-| `FEAT-019` | APK Package Inspector View | APK Studio (`ApkStudioScreen`) | Android Archive API | **IMPLEMENTED** | UI tested | Binary XML decoding planned for Phase 7 |
-| `FEAT-020` | App Preferences & Hidden Files | Settings (`SettingsScreen`) | Compose State | **IMPLEMENTED** | UI tested | Room persistence planned for Phase 4 |
+| `FEAT-018` | Multi-Document Code & Text Editor | Code Editor (`CodeEditorScreen`) | Compose Text APIs | **VERIFIED** | `SyntaxHighlighterTest` (3/3 pass) | Up to 100K char safe highlighting |
+| `FEAT-019` | Find and Replace Bar & Line Numbers | Code Editor | Compose UI State | **VERIFIED** | In-memory text substitution | UTF-8 encoded files |
+| `FEAT-020` | APK Package Inspector & Metadata | APK Studio (`ApkStudioScreen`) | `PackageManager` & `ZipFile` | **VERIFIED** | Parse validation on archive info | Protected or corrupt inputs reported |
+| `FEAT-021` | Memory-Safe Hex Viewer | Hex Viewer (`HexViewerScreen`) | `FileInputStream` | **VERIFIED** | Safe 64KB bounded buffer | Read-only mode protecting memory |
+| `FEAT-022` | Hash Generator (MD5, SHA-1, SHA-256) | Developer Tools (`DevToolsScreen`) | `MessageDigest` | **VERIFIED** | `DevToolsServiceTest` (4/4 pass) | Instant clipboard copy |
+| `FEAT-023` | Base64 & URL Encoder/Decoder | Developer Tools | `java.util.Base64` / URLEncoder | **VERIFIED** | `DevToolsServiceTest` pass | Reversible encoding |
+| `FEAT-024` | JSON Formatter & Validator | Developer Tools | `org.json.JSONObject` | **VERIFIED** | `DevToolsServiceTest` pass | Syntax error line reporting |
