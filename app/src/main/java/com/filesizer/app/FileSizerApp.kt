@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
@@ -144,12 +145,18 @@ fun FileSizerApp() {
                     )
                 ) { backStackEntry ->
                     val path = backStackEntry.arguments?.getString("path")
+                    val dbRepo = remember { com.filesizer.app.core.database.DatabaseRepository(context) }
+                    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
                     FileManagerScreen(
                         initialPath = path,
                         hasStoragePermission = hasStoragePermission,
                         onRequestPermission = requestStoragePermission,
                         onNavigateBack = { navController.popBackStack() },
                         onOpenFile = { file ->
+                            scope.launch {
+                                dbRepo.recordRecentAccess(file.name, file.path, file.size, file.isDirectory)
+                            }
                             if (file.extension == "apk") {
                                 navController.navigate(Screen.ApkStudio.createRoute(file.path))
                             } else if (file.extension in listOf("txt", "json", "xml", "md", "kt", "java", "smali", "html", "css", "js")) {
