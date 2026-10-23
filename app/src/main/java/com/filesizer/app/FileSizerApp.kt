@@ -162,7 +162,25 @@ fun FileSizerApp() {
                             } else if (file.extension in listOf("txt", "json", "xml", "md", "kt", "java", "smali", "html", "css", "js")) {
                                 navController.navigate(Screen.CodeEditor.createRoute(file.path))
                             }
+                        },
+                        onOpenArchive = { archivePath ->
+                            navController.navigate(Screen.ArchiveViewer.createRoute(archivePath))
                         }
+                    )
+                }
+
+                composable(
+                    route = Screen.ArchiveViewer.route,
+                    arguments = listOf(
+                        navArgument("path") {
+                            type = NavType.StringType
+                        }
+                    )
+                ) { backStackEntry ->
+                    val archivePath = backStackEntry.arguments?.getString("path") ?: ""
+                    com.filesizer.app.feature.archives.ArchiveViewerScreen(
+                        archivePath = archivePath,
+                        onNavigateBack = { navController.popBackStack() }
                     )
                 }
 

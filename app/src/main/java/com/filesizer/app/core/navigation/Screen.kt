@@ -56,6 +56,16 @@ sealed class Screen(
         }
     }
 
+    data object ArchiveViewer : Screen(
+        route = "archive?path={path}",
+        titleRes = com.filesizer.app.R.string.action_compress,
+        icon = Icons.Rounded.Folder
+    ) {
+        fun createRoute(path: String): String {
+            return "archive?path=${android.net.Uri.encode(path)}"
+        }
+    }
+
     data object Settings : Screen(
         route = "settings",
         titleRes = com.filesizer.app.R.string.nav_settings,

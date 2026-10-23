@@ -113,6 +113,7 @@ fun FileManagerScreen(
     onRequestPermission: () -> Unit,
     onNavigateBack: () -> Unit,
     onOpenFile: (FileItem) -> Unit = {},
+    onOpenArchive: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -142,6 +143,7 @@ fun FileManagerScreen(
 
     // Dialogs
     var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var showCreateArchiveDialog by remember { mutableStateOf(false) }
     var itemToRename by remember { mutableStateOf<FileItem?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var itemForDetails by remember { mutableStateOf<FileItem?>(null) }
@@ -243,6 +245,9 @@ fun FileManagerScreen(
                     isMoveOperation = true
                     Toast.makeText(context, "${selectedPaths.size} item(s) ready to move", Toast.LENGTH_SHORT).show()
                     isSelectionMode = false
+                },
+                onCompress = {
+                    showCreateArchiveDialog = true
                 },
                 onRename = {
                     val single = displayedFiles.find { it.path == selectedPaths.first() }
@@ -444,7 +449,13 @@ fun FileManagerScreen(
                                     if (isSelectionMode) {
                                         selectedPaths = if (isSelected) selectedPaths - item.path else selectedPaths + item.path
                                     } else {
-                                        if (item.isDirectory) currentPath = item.path else onOpenFile(item)
+                                        if (item.isDirectory) {
+                                            currentPath = item.path
+                                        } else if (item.extension in listOf("zip", "jar")) {
+                                            onOpenArchive(item.path)
+                                        } else {
+                                            onOpenFile(item)
+                                        }
                                     }
                                 },
                                 onLongClick = {
@@ -472,7 +483,13 @@ fun FileManagerScreen(
                                     if (isSelectionMode) {
                                         selectedPaths = if (isSelected) selectedPaths - item.path else selectedPaths + item.path
                                     } else {
-                                        if (item.isDirectory) currentPath = item.path else onOpenFile(item)
+                                        if (item.isDirectory) {
+                                            currentPath = item.path
+                                        } else if (item.extension in listOf("zip", "jar")) {
+                                            onOpenArchive(item.path)
+                                        } else {
+                                            onOpenFile(item)
+                                        }
                                     }
                                 },
                                 onLongClick = {
@@ -517,6 +534,29 @@ fun FileManagerScreen(
                         reloadFiles()
                     } else {
                         Toast.makeText(context, result.exceptionOrNull()?.message ?: "Failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
+
+    if (showCreateArchiveDialog) {
+        com.filesizer.app.feature.archives.dialogs.CreateArchiveDialog(
+            itemCount = selectedPaths.size,
+            onDismiss = { showCreateArchiveDialog = false },
+            onConfirm = { archiveName, level ->
+                showCreateArchiveDialog = false
+                val sources = selectedPaths.map { File(it) }
+                val targetZip = File(currentPath, archiveName)
+                scope.launch {
+                    val result = com.filesizer.app.core.archive.ArchiveService.createZipArchive(sources, targetZip, level)
+                    if (result.isSuccess) {
+                        Toast.makeText(context, "Archive created: ${targetZip.name}", Toast.LENGTH_SHORT).show()
+                        isSelectionMode = false
+                        selectedPaths = emptySet()
+                        reloadFiles()
+                    } else {
+                        Toast.makeText(context, "Failed to create archive: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -584,6 +624,7 @@ fun SelectionToolbar(
     onSelectAll: () -> Unit,
     onCopy: () -> Unit,
     onMove: () -> Unit,
+    onCompress: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onDetails: () -> Unit
@@ -619,6 +660,9 @@ fun SelectionToolbar(
                     }
                     IconButton(onClick = onMove) {
                         Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = "Move")
+                    }
+                    IconButton(onClick = onCompress) {
+                        Icon(Icons.Rounded.FolderZip, contentDescription = "Compress")
                     }
                 }
                 if (selectedCount == 1) {
