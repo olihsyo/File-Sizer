@@ -53,7 +53,13 @@
     <string name="settings_appearance_title">Appearance</string>
     <string name="settings_theme_label">Theme</string>
     <string name="settings_language_label">Language</string>
+    <string name="settings_theme_desc">Choose how File Sizer looks.</string>
+    <string name="settings_theme_system">System default</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
     <string name="settings_show_hidden_files">Show Hidden Files</string>
+    <string name="settings_show_hidden_files_desc">Display dotfiles and hidden folders in the browser.</string>
     <string name="settings_about_title">About File Sizer</string>
     <string name="settings_about_desc">Native offline-first file manager, archive studio, and developer utilities.</string>
+    <string name="settings_version_format">Version %1$s</string>
 </resources>

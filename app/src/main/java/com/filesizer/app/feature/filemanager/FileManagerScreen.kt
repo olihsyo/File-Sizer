@@ -1,7 +1,11 @@
 package com.filesizer.app.feature.filemanager
 
 import android.os.Environment
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -41,6 +45,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Image
@@ -87,11 +92,21 @@ import com.filesizer.app.core.designsystem.components.PermissionCard
 import com.filesizer.app.core.designsystem.components.formatFileSize
 import com.filesizer.app.core.operations.ConflictPolicy
 import com.filesizer.app.core.operations.FileOperationService
+import com.filesizer.app.core.operations.FileOperationProgress
+import com.filesizer.app.core.operations.PartialOperationException
+import com.filesizer.app.core.preferences.AppPreferences
+import com.filesizer.app.core.storage.DocumentTreeProvider
+import com.filesizer.app.core.storage.DocumentPartialMoveException
+import com.filesizer.app.core.database.DatabaseRepository
+import com.filesizer.app.core.database.model.OperationHistoryItem
 import com.filesizer.app.feature.details.FileDetailsDialog
 import com.filesizer.app.feature.filemanager.dialogs.CreateFolderDialog
 import com.filesizer.app.feature.filemanager.dialogs.DeleteConfirmDialog
 import com.filesizer.app.feature.filemanager.dialogs.RenameDialog
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -114,15 +129,42 @@ fun FileManagerScreen(
     onNavigateBack: () -> Unit,
     onOpenFile: (FileItem) -> Unit = {},
     onOpenArchive: (String) -> Unit = {},
+    showHiddenFiles: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val databaseRepository = remember(context) { DatabaseRepository(context) }
 
-    val rootPath = remember {
-        initialPath ?: Environment.getExternalStorageDirectory()?.absolutePath ?: "/"
+    val savedTreePath = remember(context) {
+        AppPreferences(context).documentTreeUri?.let { saved ->
+            runCatching {
+                val uri = Uri.parse(saved)
+                DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri)).toString()
+            }.getOrNull()
+        }
     }
-    var currentPath by remember { mutableStateOf(rootPath) }
+    val rootPath = remember(initialPath, savedTreePath) {
+        initialPath ?: savedTreePath ?: Environment.getExternalStorageDirectory()?.absolutePath ?: "/"
+    }
+    var currentPath by remember(initialPath, savedTreePath) { mutableStateOf(rootPath) }
+    val safParentStack = remember(initialPath, savedTreePath) { androidx.compose.runtime.mutableStateListOf<String>() }
+    val isSafLocation = remember(currentPath) { Uri.parse(currentPath).scheme.equals("content", ignoreCase = true) }
+    var currentLocationName by remember(currentPath) {
+        mutableStateOf(if (Uri.parse(currentPath).scheme == "content") "Selected folder" else File(currentPath).name.ifEmpty { "Storage" })
+    }
+    suspend fun recordHistory(operation: String, source: String, status: String, completed: Int) {
+        databaseRepository.recordOperation(
+            OperationHistoryItem(
+                operation = operation,
+                source = source.take(120),
+                destination = currentLocationName.take(120),
+                status = status,
+                completedCount = completed
+            )
+        )
+    }
+    var loadError by remember { mutableStateOf<String?>(null) }
     var fileList by remember { mutableStateOf<List<FileItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -138,8 +180,11 @@ fun FileManagerScreen(
     var selectedPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     // Clipboard for Copy / Move operations
-    var clipboardFiles by remember { mutableStateOf<List<File>?>(null) }
+    var clipboardFiles by remember { mutableStateOf<List<String>?>(null) }
     var isMoveOperation by remember { mutableStateOf(false) }
+    var isOperationRunning by remember { mutableStateOf(false) }
+    var operationProgress by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var operationJob by remember { mutableStateOf<Job?>(null) }
 
     // Dialogs
     var showCreateFolderDialog by remember { mutableStateOf(false) }
@@ -148,29 +193,68 @@ fun FileManagerScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var itemForDetails by remember { mutableStateOf<FileItem?>(null) }
 
-    // Function to reload files
-    val reloadFiles = {
-        if (hasStoragePermission) {
+    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { selectedTreeUri ->
+        if (selectedTreeUri != null) {
+            val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching { context.contentResolver.takePersistableUriPermission(selectedTreeUri, flags) }
+                .onFailure { runCatching { context.contentResolver.takePersistableUriPermission(selectedTreeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+            val documentUri = runCatching {
+                DocumentsContract.buildDocumentUriUsingTree(
+                    selectedTreeUri,
+                    DocumentsContract.getTreeDocumentId(selectedTreeUri)
+                )
+            }.getOrNull()
+            if (documentUri != null) {
+                AppPreferences(context).documentTreeUri = selectedTreeUri.toString()
+                safParentStack.clear()
+                currentPath = documentUri.toString()
+            } else {
+                Toast.makeText(context, "Could not open this folder from the selected provider.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Directory reads run off the main thread; SAF content URIs stay URIs throughout the flow.
+    val reloadFiles: suspend () -> Unit = {
+        if (hasStoragePermission || isSafLocation) {
             isLoading = true
             try {
-                val dir = File(currentPath)
-                if (dir.exists() && dir.isDirectory) {
-                    val rawFiles = dir.listFiles()?.map { file ->
+                loadError = null
+                if (isSafLocation) {
+                    val currentUri = Uri.parse(currentPath)
+                    val docs = DocumentTreeProvider.listChildren(context, currentUri).getOrThrow()
+                    fileList = docs.map { doc ->
                         FileItem(
-                            name = file.name,
-                            path = file.absolutePath,
-                            isDirectory = file.isDirectory,
-                            size = if (file.isDirectory) 0L else file.length(),
-                            lastModified = file.lastModified(),
-                            extension = file.extension.lowercase(Locale.ROOT)
+                            name = doc.name,
+                            path = doc.uri.toString(),
+                            isDirectory = doc.isDirectory,
+                            size = doc.size,
+                            lastModified = doc.lastModified,
+                            extension = if (doc.isDirectory) "" else doc.name.substringAfterLast('.', "").lowercase(Locale.ROOT)
                         )
-                    } ?: emptyList()
-                    fileList = rawFiles
+                    }
+                    currentLocationName = DocumentTreeProvider.getDocument(context, currentUri).getOrNull()?.name ?: "Selected folder"
                 } else {
-                    fileList = emptyList()
+                    fileList = withContext(Dispatchers.IO) {
+                        val dir = File(currentPath)
+                        if (!dir.exists() || !dir.isDirectory) emptyList() else {
+                            dir.listFiles()?.map { file ->
+                                FileItem(
+                                    name = file.name,
+                                    path = file.absolutePath,
+                                    isDirectory = file.isDirectory,
+                                    size = if (file.isDirectory) 0L else file.length(),
+                                    lastModified = file.lastModified(),
+                                    extension = file.extension.lowercase(Locale.ROOT)
+                                )
+                            } ?: emptyList()
+                        }
+                    }
+                    currentLocationName = File(currentPath).name.ifEmpty { "Storage" }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 fileList = emptyList()
+                loadError = error.message ?: "Could not read this folder. Access may have been revoked."
             } finally {
                 isLoading = false
             }
@@ -185,8 +269,9 @@ fun FileManagerScreen(
     }
 
     // Filter & Sort file list
-    val displayedFiles = remember(fileList, searchQuery, selectedFilter, sortOption) {
+    val displayedFiles = remember(fileList, searchQuery, selectedFilter, sortOption, showHiddenFiles) {
         fileList.filter { item ->
+            val matchesVisibility = showHiddenFiles || !item.name.startsWith('.')
             // Search query filter
             val matchesSearch = searchQuery.isEmpty() || item.name.contains(searchQuery, ignoreCase = true)
 
@@ -201,7 +286,7 @@ fun FileManagerScreen(
                 FileFilterType.APKS -> !item.isDirectory && item.extension == "apk"
             }
 
-            matchesSearch && matchesFilter
+            matchesVisibility && matchesSearch && matchesFilter
         }.sortedWith { a, b ->
             // Directories always on top
             if (a.isDirectory != b.isDirectory) {
@@ -218,8 +303,8 @@ fun FileManagerScreen(
         }
     }
 
-    val currentDir = File(currentPath)
-    val canGoUp = currentDir.parentFile != null && currentPath != Environment.getExternalStorageDirectory()?.absolutePath
+    val currentDir = if (isSafLocation) null else File(currentPath)
+    val canGoUp = if (isSafLocation) safParentStack.isNotEmpty() else currentDir?.parentFile != null && currentPath != Environment.getExternalStorageDirectory()?.absolutePath
 
     Column(modifier = modifier.fillMaxSize()) {
         // Selection Toolbar or Normal Header TopBar
@@ -235,19 +320,21 @@ fun FileManagerScreen(
                     selectedPaths = displayedFiles.map { it.path }.toSet()
                 },
                 onCopy = {
-                    clipboardFiles = selectedPaths.map { File(it) }
+                    clipboardFiles = selectedPaths.toList()
                     isMoveOperation = false
                     Toast.makeText(context, "${selectedPaths.size} item(s) copied to clipboard", Toast.LENGTH_SHORT).show()
                     isSelectionMode = false
                 },
                 onMove = {
-                    clipboardFiles = selectedPaths.map { File(it) }
+                    clipboardFiles = selectedPaths.toList()
                     isMoveOperation = true
                     Toast.makeText(context, "${selectedPaths.size} item(s) ready to move", Toast.LENGTH_SHORT).show()
                     isSelectionMode = false
                 },
                 onCompress = {
-                    showCreateArchiveDialog = true
+                    if (isSafLocation) {
+                        Toast.makeText(context, "Archive creation for selected document-provider files is not available yet.", Toast.LENGTH_LONG).show()
+                    } else showCreateArchiveDialog = true
                 },
                 onRename = {
                     val single = displayedFiles.find { it.path == selectedPaths.first() }
@@ -263,17 +350,20 @@ fun FileManagerScreen(
             )
         } else {
             FileSizerTopBar(
-                title = currentDir.name.ifEmpty { stringResource(R.string.nav_browse) },
+                title = currentLocationName.ifEmpty { stringResource(R.string.nav_browse) },
                 canNavigateBack = canGoUp,
                 onNavigateBack = {
-                    val parent = currentDir.parentFile
-                    if (parent != null && parent.canRead()) {
-                        currentPath = parent.absolutePath
+                    if (isSafLocation) {
+                        if (safParentStack.isNotEmpty()) currentPath = safParentStack.removeAt(safParentStack.lastIndex)
                     } else {
-                        onNavigateBack()
+                        val parent = currentDir?.parentFile
+                        if (parent != null && parent.canRead()) currentPath = parent.absolutePath else onNavigateBack()
                     }
                 },
                 actions = {
+                    IconButton(onClick = { treePicker.launch(null) }) {
+                        Icon(imageVector = Icons.Rounded.FolderOpen, contentDescription = "Open a folder using Storage Access Framework")
+                    }
                     IconButton(onClick = { isSearchActive = !isSearchActive }) {
                         Icon(imageVector = Icons.Rounded.Search, contentDescription = "Search")
                     }
@@ -355,7 +445,7 @@ fun FileManagerScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = currentPath,
+                    text = if (isSafLocation) "Storage Access Framework · $currentLocationName" else currentPath,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -387,26 +477,63 @@ fun FileManagerScreen(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Row {
+                        if (isOperationRunning) {
+                            TextButton(onClick = { operationJob?.cancel() }) {
+                                Text("Cancel operation", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
                         TextButton(onClick = { clipboardFiles = null }) {
                             Text("Cancel", color = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         TextButton(
                             onClick = {
                                 val sources = clipboardFiles!!
-                                val target = File(currentPath)
                                 val move = isMoveOperation
-                                scope.launch {
-                                    val result = if (move) {
-                                        FileOperationService.moveItems(sources, target, ConflictPolicy.RENAME_NEW)
-                                    } else {
-                                        FileOperationService.copyItems(sources, target, ConflictPolicy.RENAME_NEW)
-                                    }
+                                if (!isOperationRunning) operationJob = scope.launch {
+                                    isOperationRunning = true
+                                    operationProgress = 0L to 0L
+                                    try {
+                                        val result = if (isSafLocation && sources.all { Uri.parse(it).scheme == "content" }) {
+                                            DocumentTreeProvider.copyOrMove(
+                                                context,
+                                                sources.map(Uri::parse),
+                                                Uri.parse(currentPath),
+                                                move,
+                                                onProgress = { progress ->
+                                                    scope.launch(Dispatchers.Main.immediate) { operationProgress = progress.completedBytes to progress.totalBytes }
+                                                }
+                                            )
+                                        } else if (!isSafLocation && sources.none { Uri.parse(it).scheme == "content" }) {
+                                            val sourceFiles = sources.map(::File)
+                                            val progressCallback: (FileOperationProgress) -> Unit = { progress ->
+                                                scope.launch(Dispatchers.Main.immediate) { operationProgress = progress.completedBytes to progress.totalBytes }
+                                            }
+                                            if (move) FileOperationService.moveItems(sourceFiles, File(currentPath), ConflictPolicy.RENAME_NEW, progressCallback)
+                                            else FileOperationService.copyItems(sourceFiles, File(currentPath), ConflictPolicy.RENAME_NEW, progressCallback)
+                                        } else {
+                                            Result.failure(IllegalStateException("Copying between filesystem and document-provider locations is not supported."))
+                                        }
+                                    recordHistory(
+                                        operation = if (move) "Move" else "Copy",
+                                        source = "${sources.size} selected item(s)",
+                                        status = when {
+                                            result.isSuccess -> "COMPLETED"
+                                            result.exceptionOrNull() is PartialOperationException || result.exceptionOrNull() is DocumentPartialMoveException -> "PARTIAL"
+                                            else -> "FAILED"
+                                        },
+                                        completed = result.getOrNull() ?: (result.exceptionOrNull() as? PartialOperationException)?.completedItems ?: 0
+                                    )
                                     if (result.isSuccess) {
                                         Toast.makeText(context, "${result.getOrNull()} items processed successfully", Toast.LENGTH_SHORT).show()
                                         clipboardFiles = null
                                         reloadFiles()
                                     } else {
-                                        Toast.makeText(context, "Operation failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Operation failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                    } finally {
+                                        isOperationRunning = false
+                                        operationProgress = null
+                                        operationJob = null
                                     }
                                 }
                             }
@@ -414,16 +541,30 @@ fun FileManagerScreen(
                             Text("Paste Here", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                    if (isOperationRunning) {
+                        val (done, total) = operationProgress ?: (0L to 0L)
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { if (total > 0L) (done.toFloat() / total).coerceIn(0f, 1f) else 0f },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        )
+                    }
                 }
             }
         }
 
         // Content Area
         Box(modifier = Modifier.weight(1f)) {
-            if (!hasStoragePermission) {
+            if (!hasStoragePermission && !isSafLocation) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     PermissionCard(onGrantClick = onRequestPermission)
+                    TextButton(onClick = { treePicker.launch(null) }) { Text("Browse a folder using Storage Access Framework") }
                 }
+            } else if (loadError != null && !isLoading) {
+                EmptyStateCard(
+                    title = "Folder unavailable",
+                    description = loadError ?: "Folder could not be read.",
+                    icon = Icons.Rounded.Folder
+                )
             } else if (displayedFiles.isEmpty() && !isLoading) {
                 EmptyStateCard(
                     title = stringResource(R.string.empty_folder_title),
@@ -450,9 +591,12 @@ fun FileManagerScreen(
                                         selectedPaths = if (isSelected) selectedPaths - item.path else selectedPaths + item.path
                                     } else {
                                         if (item.isDirectory) {
+                                            if (isSafLocation) safParentStack.add(currentPath)
                                             currentPath = item.path
                                         } else if (item.extension in listOf("zip", "jar")) {
                                             onOpenArchive(item.path)
+                                        } else if (item.extension in listOf("rar", "7z", "tar", "gz", "bz2", "xz")) {
+                                            Toast.makeText(context, "${item.extension.uppercase()} archives are not supported yet. ZIP is supported.", Toast.LENGTH_LONG).show()
                                         } else {
                                             onOpenFile(item)
                                         }
@@ -484,9 +628,12 @@ fun FileManagerScreen(
                                         selectedPaths = if (isSelected) selectedPaths - item.path else selectedPaths + item.path
                                     } else {
                                         if (item.isDirectory) {
+                                            if (isSafLocation) safParentStack.add(currentPath)
                                             currentPath = item.path
                                         } else if (item.extension in listOf("zip", "jar")) {
                                             onOpenArchive(item.path)
+                                        } else if (item.extension in listOf("rar", "7z", "tar", "gz", "bz2", "xz")) {
+                                            Toast.makeText(context, "${item.extension.uppercase()} archives are not supported yet. ZIP is supported.", Toast.LENGTH_LONG).show()
                                         } else {
                                             onOpenFile(item)
                                         }
@@ -505,7 +652,7 @@ fun FileManagerScreen(
             }
 
             // Floating Action Button: Create Folder
-            if (hasStoragePermission && !isSelectionMode) {
+            if ((hasStoragePermission || isSafLocation) && !isSelectionMode) {
                 FloatingActionButton(
                     onClick = { showCreateFolderDialog = true },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -528,11 +675,17 @@ fun FileManagerScreen(
             onConfirm = { name ->
                 showCreateFolderDialog = false
                 scope.launch {
-                    val result = FileOperationService.createFolder(File(currentPath), name)
+                    val result = if (isSafLocation) {
+                        DocumentTreeProvider.createFolder(context, Uri.parse(currentPath), name)
+                    } else {
+                        FileOperationService.createFolder(File(currentPath), name)
+                    }
                     if (result.isSuccess) {
+                        recordHistory("Create folder", name, "COMPLETED", 1)
                         Toast.makeText(context, "Folder created", Toast.LENGTH_SHORT).show()
                         reloadFiles()
                     } else {
+                        recordHistory("Create folder", name, "FAILED", 0)
                         Toast.makeText(context, result.exceptionOrNull()?.message ?: "Failed", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -551,11 +704,13 @@ fun FileManagerScreen(
                 scope.launch {
                     val result = com.filesizer.app.core.archive.ArchiveService.createZipArchive(sources, targetZip, level)
                     if (result.isSuccess) {
+                        recordHistory("Create ZIP", "${sources.size} selected item(s)", "COMPLETED", 1)
                         Toast.makeText(context, "Archive created: ${targetZip.name}", Toast.LENGTH_SHORT).show()
                         isSelectionMode = false
                         selectedPaths = emptySet()
                         reloadFiles()
                     } else {
+                        recordHistory("Create ZIP", "${sources.size} selected item(s)", "FAILED", 0)
                         Toast.makeText(context, "Failed to create archive: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -568,16 +723,22 @@ fun FileManagerScreen(
             initialName = itemToRename!!.name,
             onDismiss = { itemToRename = null },
             onConfirm = { newName ->
-                val target = File(itemToRename!!.path)
+                val target = itemToRename!!
                 itemToRename = null
                 scope.launch {
-                    val result = FileOperationService.renameItem(target, newName)
+                    val result = if (isSafLocation) {
+                        DocumentTreeProvider.rename(context, Uri.parse(target.path), newName)
+                    } else {
+                        FileOperationService.renameItem(File(target.path), newName)
+                    }
                     if (result.isSuccess) {
+                        recordHistory("Rename", "${target.name} → $newName", "COMPLETED", 1)
                         Toast.makeText(context, "Renamed successfully", Toast.LENGTH_SHORT).show()
                         isSelectionMode = false
                         selectedPaths = emptySet()
                         reloadFiles()
                     } else {
+                        recordHistory("Rename", target.name, "FAILED", 0)
                         Toast.makeText(context, result.exceptionOrNull()?.message ?: "Rename failed", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -592,16 +753,27 @@ fun FileManagerScreen(
             onDismiss = { showDeleteConfirmDialog = false },
             onConfirm = {
                 showDeleteConfirmDialog = false
-                val targets = selectedPaths.map { File(it) }
                 scope.launch {
-                    val result = FileOperationService.deleteItems(targets)
+                    val result = if (isSafLocation) {
+                        DocumentTreeProvider.delete(context, selectedPaths.map(Uri::parse))
+                    } else {
+                        FileOperationService.deleteItems(selectedPaths.map(::File))
+                    }
                     if (result.isSuccess) {
+                        recordHistory("Delete", "${selectedPaths.size} selected item(s)", "COMPLETED", result.getOrNull() ?: 0)
                         Toast.makeText(context, "${result.getOrNull()} item(s) deleted", Toast.LENGTH_SHORT).show()
                         isSelectionMode = false
                         selectedPaths = emptySet()
                         reloadFiles()
                     } else {
-                        Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
+                        val error = result.exceptionOrNull()
+                        recordHistory(
+                            "Delete",
+                            "${selectedPaths.size} selected item(s)",
+                            if (error is PartialOperationException) "PARTIAL" else "FAILED",
+                            (error as? PartialOperationException)?.completedItems ?: 0
+                        )
+                        Toast.makeText(context, "Delete failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -694,8 +866,10 @@ fun FileRowItem(
     modifier: Modifier = Modifier
 ) {
     val dateFormatted = remember(item.lastModified) {
-        val sdf = SimpleDateFormat("MMM dd, yyyy  HH:mm", Locale.getDefault())
-        sdf.format(Date(item.lastModified))
+        if (item.lastModified <= 0L) "Date unavailable" else {
+            val sdf = SimpleDateFormat("MMM dd, yyyy  HH:mm", Locale.getDefault())
+            sdf.format(Date(item.lastModified))
+        }
     }
 
     Card(
@@ -749,7 +923,7 @@ fun FileRowItem(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!item.isDirectory) {
+                    if (!item.isDirectory && item.size >= 0L) {
                         Text(
                             text = formatFileSize(item.size),
                             style = MaterialTheme.typography.bodySmall,
@@ -826,7 +1000,7 @@ fun FileGridCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            if (!item.isDirectory) {
+            if (!item.isDirectory && item.size >= 0L) {
                 Text(
                     text = formatFileSize(item.size),
                     style = MaterialTheme.typography.labelSmall,

@@ -12,6 +12,8 @@ materialIconsExtended = "1.7.8"
 coroutines = "1.10.1"
 junit = "4.13.2"
 json = "20240303"
+arsclib = "1.4.0"
+apksig = "8.13.2"
 testExtJunit = "1.2.1"
 espresso = "3.6.1"
 
@@ -34,6 +36,8 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }
+arsclib = { group = "io.github.reandroid", name = "ARSCLib", version.ref = "arsclib" }
+apksig = { group = "com.android.tools.build", name = "apksig", version.ref = "apksig" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "testExtJunit" }
 androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 

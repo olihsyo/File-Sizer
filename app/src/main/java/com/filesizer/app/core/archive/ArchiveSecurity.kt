@@ -13,6 +13,11 @@ object ArchiveSecurity {
         val destCanonical = destinationDir.canonicalPath
         // Normalize slashes
         val normalizedName = entryName.replace('\\', '/')
+        if (normalizedName.indexOf('\u0000') >= 0 || normalizedName.startsWith('/') ||
+            Regex("^[A-Za-z]:").containsMatchIn(normalizedName)
+        ) {
+            throw SecurityException("Absolute archive paths are not allowed: $entryName")
+        }
         val targetFile = File(destinationDir, normalizedName)
         val targetCanonical = targetFile.canonicalPath
 

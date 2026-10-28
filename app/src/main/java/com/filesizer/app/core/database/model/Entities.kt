@@ -16,3 +16,13 @@ data class FavoriteItem(
     val isDirectory: Boolean,
     val addedTimestamp: Long = System.currentTimeMillis()
 )
+
+data class OperationHistoryItem(
+    val id: Long = 0,
+    val operation: String,
+    val source: String,
+    val destination: String?,
+    val status: String,
+    val completedCount: Int,
+    val timestamp: Long = System.currentTimeMillis()
+)

@@ -1,47 +1,39 @@
 # File Sizer
 
-> **Advanced Android File Manager, Archive Studio, Code Editor & Developer Utilities**
+File Sizer is an offline-first Android file utility built with Kotlin, Jetpack Compose and Material 3. The repository contains a working implementation of filesystem/SAF browsing, safer file operations, ZIP tools, a bounded text editor, APK analysis with application-label rebuild/signing, a read-only paged hex viewer and developer utilities.
 
-File Sizer is an offline-first, native Android utility built using Kotlin, Jetpack Compose, and Material 3. It combines practical everyday file management with advanced archive processing, APK package analysis, and local text/code editing.
+**Project state:** Work in progress. Several screens and services are prototypes or partial implementations; consult [FEATURE_MATRIX.md](FEATURE_MATRIX.md) and [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) before relying on a capability. No emulator or device verification was available for the current audit.
 
----
+APK rebuilding currently changes only the application label. It requires a keystore supplied by the user, signs with that certificate, and cannot preserve the original developer signature. General resource/image editing, DEX/Smali editing, and release signing of File Sizer itself are not available.
 
-## Key Highlights
-- **Vibrant & Polished UI:** Material 3 design system with dynamic theme switching, 8dp grid spacing, and responsive layouts.
-- **Bilingual from the Core:** Native English and Bengali (`values-bn`) support across all screens.
-- **Contextual Permission Handling:** Transparent explanation of storage requirements without annoying permission spam.
-- **Real Storage Metrics:** Hardware metrics calculated via `StatFs` rather than fabricated mock data.
-- **Zero Internet Requirement:** Completely offline for core storage management, safeguarding user privacy.
+## Build from source
 
----
+### Requirements
 
-## Building from Source
+- JDK 17 or newer. The current workspace was built with Android Studio JBR 25.
+- Android SDK Platform 35 and its build tools.
+- The checked-in Gradle wrapper (Gradle 9.3.1).
 
-### Prerequisites
-- JDK 17 or JDK 21+ (bundled with Android Studio)
-- Android SDK 35 with Build Tools 34.0.0+
-- Gradle 9.3+ (handled via `gradlew`)
+### Windows PowerShell
 
-### Build Commands
 ```powershell
-# Set environment variables if needed
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 $env:ANDROID_HOME = "C:\Users\OLI\AppData\Local\Android\Sdk"
-
-# Run unit tests
-.\gradlew.bat testDebugUnitTest
-
-# Assemble debug APK
-.\gradlew.bat assembleDebug
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
-Output APK will be generated at: `app/build/outputs/apk/debug/app-debug.apk`
 
----
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Debug signing is for local installation only; it is not a release signing configuration.
 
-## Documentation Index
-- [Product Requirements Document (PRD)](PRD.md)
-- [Architecture & Design Decisions](ARCHITECTURE.md)
-- [Implementation Roadmap](IMPLEMENTATION_PLAN.md)
-- [Feature Status Matrix](FEATURE_MATRIX.md)
-- [Permission Matrix](PERMISSION_MATRIX.md)
-- [Dependency Licenses Audit](DEPENDENCY_LICENSES.md)
+## Project documents
+
+- [Product requirements](PRD.md)
+- [Architecture audit](ARCHITECTURE.md)
+- [Implementation plan](IMPLEMENTATION_PLAN.md)
+- [Feature status](FEATURE_MATRIX.md)
+- [Permission matrix](PERMISSION_MATRIX.md)
+- [Dependency inventory](DEPENDENCY_LICENSES.md)
+- [Test report](TEST_REPORT.md)
+- [Security review](SECURITY_REVIEW.md)
+- [Known limitations](KNOWN_LIMITATIONS.md)
+- [Changelog](CHANGELOG.md)

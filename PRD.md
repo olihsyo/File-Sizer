@@ -1,7 +1,7 @@
 # File Sizer — Product Requirements Document (PRD)
 
 **Version:** 2.0  
-**Status:** In Active Development (Phase 1 Completed)  
+**Status:** In Active Development (Phase 1 in progress; implementation is partial)
 **Platform:** Native Android (Kotlin, Jetpack Compose, Material 3)  
 **Target SDK:** 35 | **Minimum SDK:** 26  
 **Primary Locales:** English (`en`), Bengali (`bn`)  
@@ -10,7 +10,7 @@
 ---
 
 ## 1. Product Summary
-File Sizer is an advanced, high-performance Android utility combining:
+File Sizer is intended to become an Android utility combining:
 1. **Intelligent File Manager:** Breadcrumb navigation, recursive directory exploration, safe copy/move/delete, file details, and SHA-256 calculation.
 2. **Advanced Archive Studio:** ZIP / TAR / GZIP / 7z exploration, validation, and safe extraction with strict path-traversal (Zip Slip) defenses.
 3. **Local Text & Code Editor:** Multi-document state tracking, line numbers, dirty-state indicators, syntax highlighting, and atomic saving.

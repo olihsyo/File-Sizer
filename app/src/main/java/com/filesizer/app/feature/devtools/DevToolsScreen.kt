@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,6 +40,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.filesizer.app.core.designsystem.components.FileSizerTopBar
 import com.filesizer.app.core.devtools.DevToolsService
+import com.filesizer.app.core.storage.ContentUriFiles
+import kotlinx.coroutines.launch
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +76,8 @@ fun DevToolsScreen(
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Hashes") })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Base64 & URL") })
             Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("JSON Tools") })
+            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("XML Tools") })
+            Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Text Diff") })
         }
 
         LazyColumn(
@@ -93,7 +101,51 @@ fun DevToolsScreen(
                         JsonFormatterCard(context = context)
                     }
                 }
+                3 -> item { XmlFormatterCard() }
+                4 -> item { TextDiffCard() }
             }
+        }
+    }
+}
+
+@Composable
+private fun XmlFormatterCard() {
+    var rawXml by remember { mutableStateOf("<fileSizer><version>2</version></fileSizer>") }
+    var formatted by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("XML Formatter & Validator", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(rawXml, { rawXml = it; error = "" }, label = { Text("XML input") }, modifier = Modifier.fillMaxWidth().height(160.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = {
+                val result = DevToolsService.formatXml(rawXml)
+                formatted = result.getOrNull().orEmpty()
+                error = result.exceptionOrNull()?.message.orEmpty()
+            }) { Text("Format & Validate") }
+            if (error.isNotEmpty()) Text("Invalid XML: $error", color = MaterialTheme.colorScheme.error)
+            if (formatted.isNotEmpty()) Text(formatted, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+        }
+    }
+}
+
+@Composable
+private fun TextDiffCard() {
+    var before by remember { mutableStateOf("") }
+    var after by remember { mutableStateOf("") }
+    var output by remember { mutableStateOf("") }
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Line-by-line text comparison", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(before, { before = it }, label = { Text("Original text") }, modifier = Modifier.fillMaxWidth().height(120.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(after, { after = it }, label = { Text("Updated text") }, modifier = Modifier.fillMaxWidth().height(120.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { output = DevToolsService.diffText(before, after) }) { Text("Compare") }
+            if (output.isNotEmpty()) Text(output, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+            Text("Comparison is positional by line and is not a minimal patch.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -102,6 +154,21 @@ fun DevToolsScreen(
 fun HashCalculatorCard(context: Context) {
     var inputText by remember { mutableStateOf("Hello File Sizer") }
     var selectedAlgo by remember { mutableStateOf("SHA-256") }
+    var fileHash by remember { mutableStateOf("") }
+    var selectedFileName by remember { mutableStateOf("") }
+    var isHashingFile by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            selectedFileName = ContentUriFiles.metadata(context, uri).displayName
+            isHashingFile = true
+            scope.launch {
+                val result = ContentUriFiles.calculateHash(context, uri, selectedAlgo)
+                fileHash = result.getOrElse { "Error: ${it.message}" }
+                isHashingFile = false
+            }
+        }
+    }
     val hash = remember(inputText, selectedAlgo) {
         if (inputText.isEmpty()) "" else DevToolsService.calculateHash(inputText, selectedAlgo)
     }
@@ -170,6 +237,15 @@ fun HashCalculatorCard(context: Context) {
                 ) {
                     Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy Hash")
                 }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+            Button(onClick = { filePicker.launch(arrayOf("*/*")) }, enabled = !isHashingFile) {
+                Text(if (isHashingFile) "Calculating file hash…" else "Select a file to hash")
+            }
+            if (selectedFileName.isNotEmpty()) {
+                Text(selectedFileName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(fileHash, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.primary)
             }
         }
     }

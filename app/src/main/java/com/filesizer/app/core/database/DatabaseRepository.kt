@@ -3,6 +3,7 @@ package com.filesizer.app.core.database
 import android.content.Context
 import com.filesizer.app.core.database.model.FavoriteItem
 import com.filesizer.app.core.database.model.RecentFileItem
+import com.filesizer.app.core.database.model.OperationHistoryItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,9 +20,13 @@ class DatabaseRepository(context: Context) {
     private val _favoritesFlow = MutableStateFlow<List<FavoriteItem>>(emptyList())
     val favoritesFlow: Flow<List<FavoriteItem>> = _favoritesFlow.asStateFlow()
 
+    private val _operationHistoryFlow = MutableStateFlow<List<OperationHistoryItem>>(emptyList())
+    val operationHistoryFlow: Flow<List<OperationHistoryItem>> = _operationHistoryFlow.asStateFlow()
+
     suspend fun refresh() = withContext(Dispatchers.IO) {
         _recentFilesFlow.value = dbHelper.getRecentFiles()
         _favoritesFlow.value = dbHelper.getFavorites()
+        _operationHistoryFlow.value = dbHelper.getOperationHistory()
     }
 
     suspend fun recordRecentAccess(name: String, path: String, size: Long, isDirectory: Boolean) = withContext(Dispatchers.IO) {
@@ -48,5 +53,15 @@ class DatabaseRepository(context: Context) {
 
     suspend fun isFavorite(path: String): Boolean = withContext(Dispatchers.IO) {
         dbHelper.isFavorite(path)
+    }
+
+    suspend fun recordOperation(item: OperationHistoryItem) = withContext(Dispatchers.IO) {
+        dbHelper.recordOperation(item)
+        _operationHistoryFlow.value = dbHelper.getOperationHistory()
+    }
+
+    suspend fun removeFavorite(path: String) = withContext(Dispatchers.IO) {
+        dbHelper.removeFavorite(path)
+        _favoritesFlow.value = dbHelper.getFavorites()
     }
 }

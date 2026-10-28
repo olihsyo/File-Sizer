@@ -2,6 +2,7 @@ package com.filesizer.app
 
 import com.filesizer.app.core.archive.ArchiveSecurity
 import com.filesizer.app.core.archive.ArchiveService
+import com.filesizer.app.core.archive.ArchiveLimits
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,6 +11,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class ArchiveServiceTest {
 
@@ -86,5 +90,68 @@ class ArchiveServiceTest {
         assertEquals("File Sizer Archive Test", extracted1.readText())
         assertTrue(extracted2.exists())
         assertEquals("{\"version\": 2}", extracted2.readText())
+    }
+
+    @Test
+    fun extractionRefusesToOverwriteExistingFiles() = runBlocking {
+        val root = tempFolder.root
+        val source = File(root, "source.txt").apply { writeText("replacement") }
+        val archive = File(root, "safe.zip")
+        assertTrue(ArchiveService.createZipArchive(listOf(source), archive).isSuccess)
+        val destination = tempFolder.newFolder("destination")
+        val existing = File(destination, "source.txt").apply { writeText("preserve original") }
+
+        val result = ArchiveService.extractZipArchive(archive, destination)
+
+        assertTrue(result.isFailure)
+        assertEquals("preserve original", existing.readText())
+    }
+
+    @Test
+    fun extractionEnforcesUncompressedSizeLimit() = runBlocking {
+        val root = tempFolder.root
+        val source = File(root, "large.txt").apply { writeBytes(ByteArray(32) { 0 }) }
+        val archive = File(root, "limited.zip")
+        assertTrue(ArchiveService.createZipArchive(listOf(source), archive).isSuccess)
+        val destination = tempFolder.newFolder("limited_destination")
+
+        val result = ArchiveService.extractZipArchive(
+            archive,
+            destination,
+            limits = ArchiveLimits(maxEntries = 10, maxEntryBytes = 16, maxTotalBytes = 32, maxCompressionRatio = 1_000)
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(destination.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun extractionRejectsZipSlipWithoutWritingOutsideDestination() = runBlocking {
+        val root = tempFolder.root
+        val archive = File(root, "malicious.zip")
+        ZipOutputStream(FileOutputStream(archive)).use { zip ->
+            zip.putNextEntry(ZipEntry("../outside.txt"))
+            zip.write("not written".toByteArray())
+            zip.closeEntry()
+        }
+        val destination = tempFolder.newFolder("safe")
+
+        val result = ArchiveService.extractZipArchive(archive, destination)
+
+        assertTrue(result.isFailure)
+        assertTrue(destination.listFiles().orEmpty().isEmpty())
+        assertFalse(File(root, "outside.txt").exists())
+    }
+
+    @Test
+    fun createZipRefusesToOverwriteExistingArchive() = runBlocking {
+        val root = tempFolder.root
+        val source = File(root, "source.txt").apply { writeText("data") }
+        val existing = File(root, "existing.zip").apply { writeText("keep") }
+
+        val result = ArchiveService.createZipArchive(listOf(source), existing)
+
+        assertTrue(result.isFailure)
+        assertEquals("keep", existing.readText())
     }
 }

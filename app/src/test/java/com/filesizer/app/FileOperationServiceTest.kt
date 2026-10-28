@@ -89,4 +89,45 @@ class FileOperationServiceTest {
         assertTrue(delResult.isSuccess)
         assertFalse(parent.exists())
     }
+
+    @Test
+    fun replaceKeepsOriginalWhenStagedCopyFails() = runBlocking {
+        val root = tempFolder.root
+        val sourceDir = File(root, "source").apply { mkdirs() }
+        val destinationDir = File(root, "destination").apply { mkdirs() }
+        File(sourceDir, "report.txt").writeBytes(ByteArray(256 * 1024) { (it % 251).toByte() })
+        val existing = File(destinationDir, "report.txt").apply { writeText("keep this original") }
+
+        val result = FileOperationService.copyItems(
+            sources = listOf(File(sourceDir, "report.txt")),
+            targetDir = destinationDir,
+            policy = ConflictPolicy.REPLACE,
+            onProgress = { if (it.completedBytes > 0L) throw IllegalStateException("simulated write failure") }
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals("keep this original", existing.readText())
+        assertTrue(destinationDir.listFiles().orEmpty().none { it.name.endsWith(".partial") || it.name.endsWith(".backup") })
+    }
+
+    @Test
+    fun invalidNamesWithPathSeparatorsAreRejected() = runBlocking {
+        val result = FileOperationService.createFolder(tempFolder.root, "../outside")
+        assertTrue(result.isFailure)
+        assertFalse(File(tempFolder.root.parentFile, "outside").exists())
+    }
+
+    @Test
+    fun replacementCommitsOnlyAfterVerifiedCopy() = runBlocking {
+        val root = tempFolder.root
+        val source = File(root, "incoming.txt").apply { writeText("new version") }
+        val destination = File(root, "destination").apply { mkdirs() }
+        File(destination, source.name).writeText("old version")
+
+        val result = FileOperationService.copyItems(listOf(source), destination, ConflictPolicy.REPLACE)
+
+        assertTrue(result.isSuccess)
+        assertEquals("new version", File(destination, source.name).readText())
+        assertTrue(destination.listFiles().orEmpty().none { it.name.endsWith(".partial") || it.name.endsWith(".backup") })
+    }
 }

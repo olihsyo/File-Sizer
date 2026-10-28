@@ -6,12 +6,13 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.filesizer.app.core.database.model.FavoriteItem
 import com.filesizer.app.core.database.model.RecentFileItem
+import com.filesizer.app.core.database.model.OperationHistoryItem
 
 class FileSizerDbHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         const val DATABASE_NAME = "filesizer.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
 
         // Table Recent Files
         const val TABLE_RECENTS = "recent_files"
@@ -29,6 +30,15 @@ class FileSizerDbHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
         const val COL_FAV_PATH = "path"
         const val COL_FAV_IS_DIR = "is_directory"
         const val COL_FAV_ADDED = "added_timestamp"
+
+        const val TABLE_OPERATIONS = "operation_history"
+        const val COL_OPERATION_ID = "id"
+        const val COL_OPERATION_NAME = "operation"
+        const val COL_OPERATION_SOURCE = "source"
+        const val COL_OPERATION_DESTINATION = "destination"
+        const val COL_OPERATION_STATUS = "status"
+        const val COL_OPERATION_COUNT = "completed_count"
+        const val COL_OPERATION_TIMESTAMP = "timestamp"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -57,12 +67,66 @@ class FileSizerDbHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
         db.execSQL(createFavoritesQuery)
         db.execSQL("CREATE INDEX idx_recents_path ON $TABLE_RECENTS ($COL_RECENT_PATH)")
         db.execSQL("CREATE INDEX idx_favorites_path ON $TABLE_FAVORITES ($COL_FAV_PATH)")
+        createOperationHistoryTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_RECENTS")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_FAVORITES")
-        onCreate(db)
+        if (oldVersion < 2) createOperationHistoryTable(db)
+    }
+
+    private fun createOperationHistoryTable(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS $TABLE_OPERATIONS (
+                $COL_OPERATION_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                $COL_OPERATION_NAME TEXT NOT NULL,
+                $COL_OPERATION_SOURCE TEXT NOT NULL,
+                $COL_OPERATION_DESTINATION TEXT,
+                $COL_OPERATION_STATUS TEXT NOT NULL,
+                $COL_OPERATION_COUNT INTEGER NOT NULL,
+                $COL_OPERATION_TIMESTAMP INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_operation_timestamp ON $TABLE_OPERATIONS ($COL_OPERATION_TIMESTAMP)")
+    }
+
+    @Synchronized
+    fun recordOperation(item: OperationHistoryItem) {
+        val values = ContentValues().apply {
+            put(COL_OPERATION_NAME, item.operation)
+            put(COL_OPERATION_SOURCE, item.source)
+            put(COL_OPERATION_DESTINATION, item.destination)
+            put(COL_OPERATION_STATUS, item.status)
+            put(COL_OPERATION_COUNT, item.completedCount)
+            put(COL_OPERATION_TIMESTAMP, System.currentTimeMillis())
+        }
+        writableDatabase.insert(TABLE_OPERATIONS, null, values)
+        writableDatabase.execSQL("""
+            DELETE FROM $TABLE_OPERATIONS WHERE $COL_OPERATION_ID NOT IN (
+                SELECT $COL_OPERATION_ID FROM $TABLE_OPERATIONS ORDER BY $COL_OPERATION_TIMESTAMP DESC LIMIT 100
+            )
+        """.trimIndent())
+    }
+
+    @Synchronized
+    fun getOperationHistory(limit: Int = 50): List<OperationHistoryItem> {
+        val cursor = readableDatabase.query(
+            TABLE_OPERATIONS, null, null, null, null, null, "$COL_OPERATION_TIMESTAMP DESC", limit.coerceIn(1, 100).toString()
+        )
+        return cursor.use {
+            buildList {
+                while (it.moveToNext()) add(
+                    OperationHistoryItem(
+                        id = it.getLong(it.getColumnIndexOrThrow(COL_OPERATION_ID)),
+                        operation = it.getString(it.getColumnIndexOrThrow(COL_OPERATION_NAME)),
+                        source = it.getString(it.getColumnIndexOrThrow(COL_OPERATION_SOURCE)),
+                        destination = it.getString(it.getColumnIndexOrThrow(COL_OPERATION_DESTINATION)),
+                        status = it.getString(it.getColumnIndexOrThrow(COL_OPERATION_STATUS)),
+                        completedCount = it.getInt(it.getColumnIndexOrThrow(COL_OPERATION_COUNT)),
+                        timestamp = it.getLong(it.getColumnIndexOrThrow(COL_OPERATION_TIMESTAMP))
+                    )
+                )
+            }
+        }
     }
 
     @Synchronized

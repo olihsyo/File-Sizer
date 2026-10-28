@@ -1,5 +1,6 @@
 package com.filesizer.app.feature.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,28 +15,29 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.filesizer.app.BuildConfig
 import com.filesizer.app.R
 import com.filesizer.app.core.designsystem.components.FileSizerTopBar
+import com.filesizer.app.core.preferences.ThemePreference
 
 @Composable
 fun SettingsScreen(
+    themePreference: ThemePreference,
+    onThemePreferenceChange: (ThemePreference) -> Unit,
+    showHiddenFiles: Boolean,
+    onShowHiddenFilesChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showHiddenFiles by remember { mutableStateOf(false) }
-
     Column(
         modifier = modifier.fillMaxSize()
     ) {
@@ -60,6 +62,49 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_theme_label),
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_theme_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        listOf(
+                            ThemePreference.SYSTEM to R.string.settings_theme_system,
+                            ThemePreference.LIGHT to R.string.settings_theme_light,
+                            ThemePreference.DARK to R.string.settings_theme_dark
+                        ).forEach { (preference, labelRes) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onThemePreferenceChange(preference) }
+                            ) {
+                                RadioButton(
+                                    selected = themePreference == preference,
+                                    onClick = { onThemePreferenceChange(preference) }
+                                )
+                                Text(
+                                    text = stringResource(labelRes),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     ),
@@ -79,7 +124,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Display dotfiles and hidden folders in browser",
+                                text = stringResource(R.string.settings_show_hidden_files_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -87,7 +132,7 @@ fun SettingsScreen(
 
                         Switch(
                             checked = showHiddenFiles,
-                            onCheckedChange = { showHiddenFiles = it },
+                            onCheckedChange = onShowHiddenFilesChange,
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
                                 checkedTrackColor = MaterialTheme.colorScheme.primary
@@ -124,7 +169,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Version 1.0.0 (Native Offline Edition)",
+                            text = stringResource(R.string.settings_version_format, BuildConfig.VERSION_NAME),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

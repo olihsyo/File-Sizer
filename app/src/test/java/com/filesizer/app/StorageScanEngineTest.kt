@@ -50,4 +50,21 @@ class StorageScanEngineTest {
         assertEquals(3, report.largestFiles.size)
         assertEquals("song.mp3", report.largestFiles[0].name)
     }
+
+    @Test
+    fun duplicateCandidatesRequireMatchingContentHash() = runBlocking {
+        val root = tempFolder.root
+        val bytes = ByteArray(1024 * 1024 + 8) { (it % 239).toByte() }
+        File(root, "copy-a.bin").writeBytes(bytes)
+        File(root, "copy-b.bin").writeBytes(bytes.copyOf())
+        File(root, "same-size-different-content.bin").writeBytes(ByteArray(bytes.size) { 7 })
+
+        StorageScanEngine.reset()
+        StorageScanEngine.startScan(root)
+
+        val groups = StorageScanEngine.scanReport.value.potentialDuplicates
+        assertEquals(1, groups.size)
+        assertEquals(bytes.size.toLong(), groups.single().sizeBytes)
+        assertEquals(setOf("copy-a.bin", "copy-b.bin"), groups.single().files.map { it.name }.toSet())
+    }
 }

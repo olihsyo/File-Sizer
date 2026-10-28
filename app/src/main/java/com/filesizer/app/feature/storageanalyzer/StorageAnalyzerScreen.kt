@@ -253,8 +253,8 @@ fun StorageAnalyzerScreen(
                             EmptyStateNotice(text = "No duplicate file candidates detected yet. Run scan to compare files.")
                         }
                     } else {
-                        items(scanReport.potentialDuplicates.entries.toList()) { entry ->
-                            DuplicateGroupCard(size = entry.key, files = entry.value)
+                        items(scanReport.potentialDuplicates) { group ->
+                            DuplicateGroupCard(size = group.sizeBytes, files = group.files, sha256 = group.sha256)
                         }
                     }
                 }
@@ -394,7 +394,7 @@ fun LargestFileCard(file: ScannedFileInfo) {
 }
 
 @Composable
-fun DuplicateGroupCard(size: Long, files: List<ScannedFileInfo>) {
+fun DuplicateGroupCard(size: Long, files: List<ScannedFileInfo>, sha256: String) {
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -425,6 +425,13 @@ fun DuplicateGroupCard(size: Long, files: List<ScannedFileInfo>) {
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "SHA-256 ${sha256.take(16)}…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 

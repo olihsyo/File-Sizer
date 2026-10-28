@@ -44,4 +44,24 @@ class DevToolsServiceTest {
         assertTrue(formatted.contains("\n"))
         assertTrue(formatted.contains("  \"app\": \"File Sizer\""))
     }
+
+    @Test
+    fun xmlFormattingValidatesAndFormatsSafeXml() {
+        val result = DevToolsService.formatXml("<root><item>value</item></root>")
+        assertTrue(result.isSuccess)
+        assertTrue(result.getOrNull()!!.contains("<item>value</item>"))
+    }
+
+    @Test
+    fun xmlFormatterRejectsDocumentTypeDeclarations() {
+        val result = DevToolsService.formatXml("<!DOCTYPE root [<!ENTITY x SYSTEM 'file:///etc/passwd'>]><root>&x;</root>")
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun textDiffMarksChangedLines() {
+        val result = DevToolsService.diffText("one\ntwo", "one\nthree")
+        assertTrue(result.contains("- 2  two"))
+        assertTrue(result.contains("+ 2  three"))
+    }
 }

@@ -1,5 +1,6 @@
 package com.filesizer.app.feature.archives
 
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -55,7 +56,10 @@ import com.filesizer.app.core.archive.model.ArchiveEntryItem
 import com.filesizer.app.core.designsystem.components.EmptyStateCard
 import com.filesizer.app.core.designsystem.components.FileSizerTopBar
 import com.filesizer.app.core.designsystem.components.formatFileSize
+import com.filesizer.app.core.storage.ContentUriFiles
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 
 @Composable
@@ -66,27 +70,43 @@ fun ArchiveViewerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val archiveFile = remember(archivePath) { File(archivePath) }
+    val isContentArchive = remember(archivePath) { Uri.parse(archivePath).scheme.equals("content", ignoreCase = true) }
+    var archiveFile by remember(archivePath) { mutableStateOf<File?>(null) }
+    var archiveDisplayName by remember(archivePath) { mutableStateOf("Archive") }
 
     var entries by remember { mutableStateOf<List<ArchiveEntryItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isExtracting by remember { mutableStateOf(false) }
     var isTesting by remember { mutableStateOf(false) }
+    var extractionProgress by remember { mutableStateOf(0f) }
+    var extractJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(archivePath) {
         isLoading = true
-        val result = ArchiveService.listZipEntries(archiveFile)
-        if (result.isSuccess) {
-            entries = result.getOrNull() ?: emptyList()
-        } else {
-            Toast.makeText(context, "Failed to read archive: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+        try {
+            val uri = Uri.parse(archivePath)
+            val file = if (isContentArchive) {
+                archiveDisplayName = ContentUriFiles.metadata(context, uri).displayName
+                ContentUriFiles.copyToCache(context, uri, ContentUriFiles.MAX_ARCHIVE_IMPORT_BYTES).getOrThrow()
+            } else File(if (uri.scheme.equals("file", ignoreCase = true)) uri.path ?: archivePath else archivePath).also { archiveDisplayName = it.name }
+            archiveFile = file
+            val result = ArchiveService.listZipEntries(file)
+            if (result.isSuccess) entries = result.getOrNull() ?: emptyList()
+            else Toast.makeText(context, "Failed to read ZIP archive: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+        } catch (error: Exception) {
+            Toast.makeText(context, "Archive unavailable: ${error.message}", Toast.LENGTH_LONG).show()
+        } finally {
+            isLoading = false
         }
-        isLoading = false
+    }
+
+    androidx.compose.runtime.DisposableEffect(archiveFile, isContentArchive) {
+        onDispose { if (isContentArchive) archiveFile?.delete() }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
         FileSizerTopBar(
-            title = archiveFile.name,
+            title = archiveDisplayName,
             canNavigateBack = true,
             onNavigateBack = onNavigateBack,
             actions = {
@@ -94,16 +114,16 @@ fun ArchiveViewerScreen(
                     onClick = {
                         isTesting = true
                         scope.launch {
-                            val testResult = ArchiveService.testZipIntegrity(archiveFile)
+                            val testResult = archiveFile?.let { ArchiveService.testZipIntegrity(it) }
                             isTesting = false
-                            if (testResult.isSuccess && testResult.getOrNull() == true) {
+                            if (testResult?.isSuccess == true && testResult.getOrNull() == true) {
                                 Toast.makeText(context, "Archive integrity verified! CRC32 passed.", Toast.LENGTH_LONG).show()
                             } else {
-                                Toast.makeText(context, "Integrity check failed: ${testResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Integrity check failed: ${testResult?.exceptionOrNull()?.message ?: "Archive is unavailable"}", Toast.LENGTH_LONG).show()
                             }
                         }
                     },
-                    enabled = !isTesting
+                    enabled = !isTesting && archiveFile != null
                 ) {
                     if (isTesting) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -131,7 +151,7 @@ fun ArchiveViewerScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Archive Size: ${formatFileSize(archiveFile.length())}",
+                        text = archiveFile?.let { "Archive Size: ${formatFileSize(it.length())}" } ?: "Loading archive…",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -139,19 +159,33 @@ fun ArchiveViewerScreen(
 
                 Button(
                     onClick = {
-                        isExtracting = true
-                        val outDir = File(archiveFile.parentFile, archiveFile.nameWithoutExtension)
-                        scope.launch {
-                            val extractResult = ArchiveService.extractZipArchive(archiveFile, outDir)
-                            isExtracting = false
-                            if (extractResult.isSuccess) {
-                                Toast.makeText(context, "Extracted ${extractResult.getOrNull()} files to ${outDir.name}", Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(context, "Extraction error: ${extractResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        if (isExtracting) {
+                            extractJob?.cancel()
+                        } else {
+                            val source = archiveFile ?: return@Button
+                            val outDir = File(source.parentFile, source.nameWithoutExtension)
+                            isExtracting = true
+                            extractionProgress = 0f
+                            extractJob = scope.launch {
+                                try {
+                                    val extractResult = ArchiveService.extractZipArchive(source, outDir, onProgress = { current: Int, total: Int ->
+                                        scope.launch(Dispatchers.Main.immediate) {
+                                            extractionProgress = if (total == 0) 1f else current.toFloat() / total.toFloat()
+                                        }
+                                    })
+                                    if (extractResult.isSuccess) {
+                                        Toast.makeText(context, "Extracted ${extractResult.getOrNull()} entries to ${outDir.name}", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(context, "Extraction error: ${extractResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                } finally {
+                                    isExtracting = false
+                                    extractJob = null
+                                }
                             }
                         }
                     },
-                    enabled = !isExtracting && entries.isNotEmpty(),
+                    enabled = entries.isNotEmpty() && !isContentArchive && archiveFile != null,
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -167,10 +201,23 @@ fun ArchiveViewerScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Extracting...")
                     } else {
-                        Icon(Icons.Rounded.Unarchive, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(if (isExtracting) Icons.Rounded.TaskAlt else Icons.Rounded.Unarchive, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.action_extract))
+                        Text(if (isExtracting) "Cancel" else stringResource(R.string.action_extract))
                     }
+                }
+                if (isExtracting) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { extractionProgress },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (isContentArchive) {
+                    Text(
+                        "This archive was opened through a document provider. Extraction to a provider folder is not supported yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

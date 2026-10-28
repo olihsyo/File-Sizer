@@ -10,11 +10,13 @@ import android.provider.Settings
 import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,21 +36,55 @@ import androidx.navigation.navArgument
 import com.filesizer.app.core.designsystem.components.FileSizerNavigationBar
 import com.filesizer.app.core.designsystem.theme.FileSizerTheme
 import com.filesizer.app.core.navigation.Screen
+import com.filesizer.app.core.preferences.AppPreferences
+import com.filesizer.app.core.preferences.ThemePreference
 import com.filesizer.app.feature.apkstudio.ApkStudioScreen
 import com.filesizer.app.feature.editor.CodeEditorScreen
 import com.filesizer.app.feature.filemanager.FileManagerScreen
 import com.filesizer.app.feature.home.HomeScreen
 import com.filesizer.app.feature.settings.SettingsScreen
 import com.filesizer.app.feature.storageanalyzer.StorageAnalyzerScreen
+import com.filesizer.app.core.storage.ContentUriFiles
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
-fun FileSizerApp() {
-    FileSizerTheme {
+fun FileSizerApp(openedUri: String? = null) {
+    val context = LocalContext.current
+    val appPreferences = remember(context) { AppPreferences(context) }
+    var themePreference by remember { mutableStateOf(appPreferences.themePreference) }
+    var showHiddenFiles by remember { mutableStateOf(appPreferences.showHiddenFiles) }
+    val useDarkTheme = when (themePreference) {
+        ThemePreference.SYSTEM -> isSystemInDarkTheme()
+        ThemePreference.LIGHT -> false
+        ThemePreference.DARK -> true
+    }
+
+    FileSizerTheme(darkTheme = useDarkTheme) {
         val navController = rememberNavController()
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
 
-        val context = LocalContext.current
+        LaunchedEffect(openedUri) {
+            if (openedUri != null) {
+                val uri = Uri.parse(openedUri)
+                val displayName = withContext(Dispatchers.IO) {
+                    runCatching {
+                        if (uri.scheme.equals("content", ignoreCase = true)) ContentUriFiles.metadata(context, uri).displayName
+                        else uri.lastPathSegment.orEmpty()
+                    }.getOrDefault(uri.lastPathSegment.orEmpty())
+                }
+                val extension = displayName.substringAfterLast('.', "").lowercase()
+                val route = when {
+                    extension == "apk" -> Screen.ApkStudio.createRoute(openedUri)
+                    extension in listOf("zip", "jar") -> Screen.ArchiveViewer.createRoute(openedUri)
+                    extension in listOf("txt", "json", "xml", "md", "kt", "java", "smali", "html", "css", "js", "csv", "log") -> Screen.CodeEditor.createRoute(openedUri)
+                    else -> Screen.HexViewer.createRoute(openedUri)
+                }
+                navController.navigate(route)
+            }
+        }
+
         val lifecycleOwner = LocalLifecycleOwner.current
 
         var hasStoragePermission by remember {
@@ -151,6 +187,7 @@ fun FileSizerApp() {
                     FileManagerScreen(
                         initialPath = path,
                         hasStoragePermission = hasStoragePermission,
+                        showHiddenFiles = showHiddenFiles,
                         onRequestPermission = requestStoragePermission,
                         onNavigateBack = { navController.popBackStack() },
                         onOpenFile = { file ->
@@ -248,7 +285,18 @@ fun FileSizerApp() {
                 }
 
                 composable(Screen.Settings.route) {
-                    SettingsScreen()
+                    SettingsScreen(
+                        themePreference = themePreference,
+                        onThemePreferenceChange = { preference ->
+                            appPreferences.themePreference = preference
+                            themePreference = preference
+                        },
+                        showHiddenFiles = showHiddenFiles,
+                        onShowHiddenFilesChange = { enabled ->
+                            appPreferences.showHiddenFiles = enabled
+                            showHiddenFiles = enabled
+                        }
+                    )
                 }
             }
         }

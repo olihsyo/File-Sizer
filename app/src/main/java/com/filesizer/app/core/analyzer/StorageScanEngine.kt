@@ -1,22 +1,20 @@
 package com.filesizer.app.core.analyzer
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.security.MessageDigest
+import java.util.PriorityQueue
 import java.util.Locale
 import kotlin.coroutines.coroutineContext
 
 enum class FileCategory(val displayName: String) {
-    IMAGES("Images"),
-    VIDEOS("Videos"),
-    AUDIO("Audio & Music"),
-    DOCUMENTS("Documents"),
-    ARCHIVES("Archives (ZIP/7z)"),
-    APKS("APKs & Packages"),
-    OTHERS("Other Files")
+    IMAGES("Images"), VIDEOS("Videos"), AUDIO("Audio & Music"), DOCUMENTS("Documents"),
+    ARCHIVES("Archives (ZIP/7z)"), APKS("APKs & Packages"), OTHERS("Other Files")
 }
 
 data class ScannedFileInfo(
@@ -27,6 +25,12 @@ data class ScannedFileInfo(
     val lastModified: Long
 )
 
+data class DuplicateFileGroup(
+    val sizeBytes: Long,
+    val sha256: String,
+    val files: List<ScannedFileInfo>
+)
+
 data class StorageScanReport(
     val isScanning: Boolean = false,
     val scannedFilesCount: Int = 0,
@@ -35,108 +39,144 @@ data class StorageScanReport(
     val categorySizes: Map<FileCategory, Long> = FileCategory.values().associateWith { 0L },
     val categoryCounts: Map<FileCategory, Int> = FileCategory.values().associateWith { 0 },
     val largestFiles: List<ScannedFileInfo> = emptyList(),
-    val potentialDuplicates: Map<Long, List<ScannedFileInfo>> = emptyMap()
+    val potentialDuplicates: List<DuplicateFileGroup> = emptyList(),
+    val unreadableDirectoriesCount: Int = 0
 )
 
 object StorageScanEngine {
+    private const val MAX_DEPTH = 64
+    private const val MAX_DUPLICATE_CANDIDATES = 20_000
+    private const val DUPLICATE_MIN_BYTES = 1024L * 1024
 
     private val _scanReport = MutableStateFlow(StorageScanReport())
     val scanReport = _scanReport.asStateFlow()
 
-    fun reset() {
-        _scanReport.value = StorageScanReport()
-    }
+    fun reset() { _scanReport.value = StorageScanReport() }
 
     suspend fun startScan(root: File) = withContext(Dispatchers.IO) {
         if (!root.exists() || !root.canRead()) return@withContext
-
+        val operationContext = coroutineContext
         _scanReport.value = StorageScanReport(isScanning = true)
 
         var totalFiles = 0
         var totalDirs = 0
         var totalBytes = 0L
+        var unreadableDirectories = 0
         val sizes = FileCategory.values().associateWith { 0L }.toMutableMap()
         val counts = FileCategory.values().associateWith { 0 }.toMutableMap()
-        val allFiles = ArrayList<ScannedFileInfo>(500)
-        val sizeGroupMap = HashMap<Long, MutableList<ScannedFileInfo>>()
+        val largest = PriorityQueue<ScannedFileInfo>(25, compareBy { it.size })
+        val sizeCandidates = HashMap<Long, MutableList<ScannedFileInfo>>()
+        var candidateCount = 0
+        val visitedDirectories = HashSet<String>()
+        val duplicates = mutableListOf<DuplicateFileGroup>()
 
-        suspend fun scanDirectory(dir: File, depth: Int) {
-            if (!coroutineContext.isActive || depth > 12) return
+        fun publishPartial() {
+            _scanReport.value = StorageScanReport(
+                isScanning = true,
+                scannedFilesCount = totalFiles,
+                scannedDirsCount = totalDirs,
+                totalSizeBytes = totalBytes,
+                categorySizes = sizes.toMap(),
+                categoryCounts = counts.toMap(),
+                largestFiles = largest.toList().sortedByDescending { it.size },
+                unreadableDirectoriesCount = unreadableDirectories
+            )
+        }
+
+        suspend fun scanDirectory(directory: File, depth: Int) {
+            operationContext.ensureActive()
+            if (depth > MAX_DEPTH) return
+            val canonical = runCatching { directory.canonicalPath }.getOrNull() ?: return
+            if (!visitedDirectories.add(canonical)) return
             totalDirs++
-
-            val files = dir.listFiles() ?: return
-            for (file in files) {
-                if (!coroutineContext.isActive) return
-
+            val children = directory.listFiles()
+            if (children == null) {
+                unreadableDirectories++
+                return
+            }
+            for (file in children) {
+                operationContext.ensureActive()
                 if (file.isDirectory) {
                     scanDirectory(file, depth + 1)
-                } else {
+                } else if (file.isFile) {
                     totalFiles++
-                    val fileSize = file.length()
-                    totalBytes += fileSize
+                    val length = file.length()
+                    totalBytes += length
                     val category = categorize(file.extension)
-
-                    sizes[category] = (sizes[category] ?: 0L) + fileSize
+                    sizes[category] = (sizes[category] ?: 0L) + length
                     counts[category] = (counts[category] ?: 0) + 1
-
-                    val info = ScannedFileInfo(
-                        name = file.name,
-                        path = file.absolutePath,
-                        size = fileSize,
-                        category = category,
-                        lastModified = file.lastModified()
-                    )
-
-                    allFiles.add(info)
-
-                    // Track potential duplicates for files > 1 MB
-                    if (fileSize > 1024 * 1024) {
-                        sizeGroupMap.getOrPut(fileSize) { ArrayList() }.add(info)
+                    val info = ScannedFileInfo(file.name, file.absolutePath, length, category, file.lastModified())
+                    if (largest.size < 25) largest.add(info)
+                    else if (largest.peek()?.let { length > it.size } == true) {
+                        largest.poll()
+                        largest.add(info)
                     }
-
-                    // Periodically update UI
-                    if (totalFiles % 100 == 0) {
-                        _scanReport.value = _scanReport.value.copy(
-                            scannedFilesCount = totalFiles,
-                            scannedDirsCount = totalDirs,
-                            totalSizeBytes = totalBytes,
-                            categorySizes = HashMap(sizes),
-                            categoryCounts = HashMap(counts)
-                        )
+                    if (length >= DUPLICATE_MIN_BYTES && candidateCount < MAX_DUPLICATE_CANDIDATES) {
+                        sizeCandidates.getOrPut(length) { mutableListOf() }.add(info)
+                        candidateCount++
                     }
+                    if (totalFiles % 100 == 0) publishPartial()
                 }
             }
         }
 
-        scanDirectory(root, 0)
-
-        // Find top 25 largest files
-        val largest = allFiles.sortedByDescending { it.size }.take(25)
-
-        // Filter duplicates: groups with 2 or more files
-        val duplicates = sizeGroupMap.filter { it.value.size >= 2 }
-
-        _scanReport.value = StorageScanReport(
-            isScanning = false,
-            scannedFilesCount = totalFiles,
-            scannedDirsCount = totalDirs,
-            totalSizeBytes = totalBytes,
-            categorySizes = sizes,
-            categoryCounts = counts,
-            largestFiles = largest,
-            potentialDuplicates = duplicates
-        )
+        try {
+            scanDirectory(root, 0)
+            for ((size, candidates) in sizeCandidates) {
+                operationContext.ensureActive()
+                if (candidates.size < 2) continue
+                val byHash = HashMap<String, MutableList<ScannedFileInfo>>()
+                for (candidate in candidates) {
+                    operationContext.ensureActive()
+                    val hash = hashFile(candidate.path) ?: continue
+                    byHash.getOrPut(hash) { mutableListOf() }.add(candidate)
+                }
+                byHash.forEach { (hash, files) ->
+                    if (files.size > 1) duplicates += DuplicateFileGroup(size, hash, files.toList())
+                }
+            }
+        } finally {
+            _scanReport.value = StorageScanReport(
+                isScanning = false,
+                scannedFilesCount = totalFiles,
+                scannedDirsCount = totalDirs,
+                totalSizeBytes = totalBytes,
+                categorySizes = sizes.toMap(),
+                categoryCounts = counts.toMap(),
+                largestFiles = largest.toList().sortedByDescending { it.size },
+                potentialDuplicates = duplicates.toList(),
+                unreadableDirectoriesCount = unreadableDirectories
+            )
+        }
     }
 
-    fun categorize(extension: String): FileCategory {
-        return when (extension.lowercase(Locale.ROOT)) {
-            "jpg", "jpeg", "png", "webp", "gif", "bmp", "svg" -> FileCategory.IMAGES
-            "mp4", "mkv", "avi", "mov", "webm", "flv" -> FileCategory.VIDEOS
-            "mp3", "wav", "flac", "ogg", "m4a", "aac" -> FileCategory.AUDIO
-            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt" -> FileCategory.DOCUMENTS
-            "zip", "rar", "7z", "tar", "gz", "bz2", "xz" -> FileCategory.ARCHIVES
-            "apk", "aab", "xapk", "apks" -> FileCategory.APKS
-            else -> FileCategory.OTHERS
+    private suspend fun hashFile(path: String): String? {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            FileInputStream(File(path)).use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    coroutineContext.ensureActive()
+                    val length = input.read(buffer)
+                    if (length < 0) break
+                    digest.update(buffer, 0, length)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
         }
+    }
+
+    fun categorize(extension: String): FileCategory = when (extension.lowercase(Locale.ROOT)) {
+        "jpg", "jpeg", "png", "webp", "gif", "bmp", "svg" -> FileCategory.IMAGES
+        "mp4", "mkv", "avi", "mov", "webm", "flv" -> FileCategory.VIDEOS
+        "mp3", "wav", "flac", "ogg", "m4a", "aac" -> FileCategory.AUDIO
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt" -> FileCategory.DOCUMENTS
+        "zip", "rar", "7z", "tar", "gz", "bz2", "xz" -> FileCategory.ARCHIVES
+        "apk", "aab", "xapk", "apks" -> FileCategory.APKS
+        else -> FileCategory.OTHERS
     }
 }

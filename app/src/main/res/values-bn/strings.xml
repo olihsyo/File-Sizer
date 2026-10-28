@@ -53,7 +53,13 @@
     <string name="settings_appearance_title">চেহারা ও থিম</string>
     <string name="settings_theme_label">থিম</string>
     <string name="settings_language_label">ভাষা</string>
+    <string name="settings_theme_desc">ফাইল সাইজারের চেহারা বেছে নিন।</string>
+    <string name="settings_theme_system">সিস্টেমের ডিফল্ট</string>
+    <string name="settings_theme_light">লাইট</string>
+    <string name="settings_theme_dark">ডার্ক</string>
     <string name="settings_show_hidden_files">লুকানো ফাইল দেখান</string>
+    <string name="settings_show_hidden_files_desc">ব্রাউজারে ডটফাইল ও লুকানো ফোল্ডার দেখান।</string>
     <string name="settings_about_title">ফাইল সাইজার পরিচিতি</string>
     <string name="settings_about_desc">নেটিভ অফলাইন ফাইল ম্যানেজার, আর্কাইভ স্টুডিও এবং ডেভেলপার ইউটিলিটি।</string>
+    <string name="settings_version_format">সংস্করণ %1$s</string>
 </resources>

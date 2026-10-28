@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import com.filesizer.app.R
 import com.filesizer.app.core.database.DatabaseRepository
 import com.filesizer.app.core.database.model.RecentFileItem
+import com.filesizer.app.core.database.model.FavoriteItem
+import com.filesizer.app.core.database.model.OperationHistoryItem
 import com.filesizer.app.core.designsystem.components.EmptyStateCard
 import com.filesizer.app.core.designsystem.components.FileSizerTopBar
 import com.filesizer.app.core.designsystem.components.PermissionCard
@@ -65,6 +67,8 @@ fun HomeScreen(
     val context = LocalContext.current
     val repository = remember { DatabaseRepository(context) }
     val recentFiles by repository.recentFilesFlow.collectAsState(initial = emptyList())
+    val favorites by repository.favoritesFlow.collectAsState(initial = emptyList())
+    val operationHistory by repository.operationHistoryFlow.collectAsState(initial = emptyList())
 
     LaunchedEffect(Unit) {
         repository.refresh()
@@ -241,6 +245,76 @@ fun HomeScreen(
                     )
                 }
             }
+
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Favorites",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+            if (favorites.isEmpty()) {
+                item {
+                    Text(
+                        text = "Open file details and tap the star to save a favorite.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                items(favorites.take(12)) { favorite ->
+                    RecentFileRow(
+                        item = RecentFileItem(name = favorite.name, path = favorite.path, size = 0, isDirectory = favorite.isDirectory),
+                        onClick = {
+                            if (favorite.isDirectory) onNavigate(Screen.Browse.createRoute(favorite.path))
+                            else {
+                                val ext = favorite.name.substringAfterLast('.', "").lowercase()
+                                when (ext) {
+                                    "apk" -> onNavigate(Screen.ApkStudio.createRoute(favorite.path))
+                                    "zip", "jar" -> onNavigate(Screen.ArchiveViewer.createRoute(favorite.path))
+                                    else -> onNavigate(Screen.CodeEditor.createRoute(favorite.path))
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Recent operations",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+            if (operationHistory.isEmpty()) {
+                item { Text("Completed file actions will appear here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            } else {
+                items(operationHistory.take(8)) { operation -> OperationHistoryRow(operation) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperationHistoryRow(item: OperationHistoryItem) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("${item.operation} · ${item.source}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium))
+                Text(item.destination ?: "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("${item.status.lowercase().replace('_', ' ')} · ${item.completedCount}", style = MaterialTheme.typography.labelSmall, color = if (item.status == "COMPLETED") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
         }
     }
 }
